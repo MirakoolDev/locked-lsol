@@ -9,13 +9,9 @@ import {
 import { Buffer } from "buffer";
 import {
   Wallet,
-  Loader2,
   ArrowDownToLine,
   AlertCircle,
   Search,
-  LayoutDashboard,
-  Wrench,
-  ShieldAlert,
   CheckCircle2,
 } from "lucide-react";
 
@@ -181,7 +177,6 @@ function App() {
 
       if (escrowBalance > 0) {
         setBalance(escrowBalance);
-        setLsolMint(TREASURY_MINT.toString());
       } else {
         setBalance(0);
         setMessage({
@@ -195,14 +190,13 @@ function App() {
         text: err.message || "Error fetching balance.",
       });
       setBalance(null);
-      setLsolMint(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const withdrawSol = async () => {
-    if (!wallet || balance === null || !lsolMint) return;
+    if (!wallet || balance === null) return;
     setIsLoading(true);
     setMessage(null);
     try {
@@ -220,7 +214,7 @@ function App() {
       );
 
       const amountBuffer = Buffer.alloc(8);
-      amountBuffer.writeBigUInt64LE(BigInt(Math.floor(balance * 1e9)), 0);
+      amountBuffer.writeBigUInt64LE(BigInt(Math.floor(balance * 1e9)) as any, 0);
 
       const discriminator = Buffer.from("b712469c946da122", "hex");
 
