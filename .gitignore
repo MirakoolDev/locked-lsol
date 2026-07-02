@@ -1,0 +1,18 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env
+.DS_Store
+
+# Ignore specific markdown files
+final_report.md
+imp.md
+opensea_email_draft.md
+
+# Ignore the huge unparsed wallet cache
+wallet_cache.json
+frontend/wallet_cache.json
+
+# But do NOT ignore affected_wallets.json since it's the database for the frontend!
+!frontend/src/affected_wallets.json
