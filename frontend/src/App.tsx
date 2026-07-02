@@ -377,7 +377,10 @@ function App() {
                 <tbody>
                   {currentWallets.map((w, idx) => (
                     <tr key={idx}>
-                      <td>{w.address}</td>
+                      <td>
+                        <span className="desktop-only">{w.address}</span>
+                        <span className="mobile-only">{w.address.slice(0, 4)}...{w.address.slice(-4)}</span>
+                      </td>
                       <td
                         style={{
                           textAlign: "right",
@@ -390,7 +393,8 @@ function App() {
                       <td>
                         {w.balance > 0 ? (
                           <span className="badge badge-locked">
-                            Locked (Error 6011)
+                            <span className="desktop-only">Locked (Error 6011)</span>
+                            <span className="mobile-only">Locked</span>
                           </span>
                         ) : (
                           <span className="badge badge-empty">Empty</span>
