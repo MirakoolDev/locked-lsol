@@ -65,6 +65,13 @@ function App() {
   const [trackedWallets, setTrackedWallets] = useState<TrackedWallet[]>(INITIAL_TRACKED_WALLETS);
   const [lookupInput, setLookupInput] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  const handleCopy = (address: string) => {
+    navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
+    setTimeout(() => setCopiedAddress(null), 2000);
+  };
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -377,9 +384,16 @@ function App() {
                 <tbody>
                   {currentWallets.map((w, idx) => (
                     <tr key={idx}>
-                      <td>
+                      <td 
+                        onClick={() => handleCopy(w.address)}
+                        style={{ cursor: "pointer" }}
+                        title="Click to copy address"
+                      >
                         <span className="desktop-only">{w.address}</span>
                         <span className="mobile-only">{w.address.slice(0, 4)}...{w.address.slice(-4)}</span>
+                        {copiedAddress === w.address && (
+                          <span style={{ color: "#38bdf8", marginLeft: "8px", fontSize: "0.75rem", fontWeight: "bold" }}>Copied!</span>
+                        )}
                       </td>
                       <td
                         style={{
