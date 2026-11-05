@@ -1,12 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  Connection,
-  PublicKey,
-  Transaction,
-  TransactionInstruction,
-  SystemProgram,
-} from "@solana/web3.js";
-import { Buffer } from "buffer";
+import { Connection, PublicKey } from "@solana/web3.js";
 import {
   Wallet,
   ArrowDownToLine,
@@ -14,29 +7,12 @@ import {
   Search,
   CheckCircle2,
 } from "lucide-react";
-
-const AH_PROGRAM = new PublicKey("hausS13jsjafwWwGqZTUQRmWyvyxn9EQpqMwV1PBBmk");
-const AH_AUTHORITY = new PublicKey(
-  "2pahVjmt9TTsxkHni5sqSC8DhnzguLWLYK8wfGjuNmM8",
-);
-const TREASURY_MINT = new PublicKey(
-  "So11111111111111111111111111111111111111112",
-);
-const AUCTION_HOUSE = new PublicKey(
-  "3o9d13qUvEuuauhFrVom1vuCzgNsJifeaBYDPquaT73Y",
-);
-const FEE_ACCOUNT = new PublicKey(
-  "5xyoD5hnWDBLsW6rjW2TBmqiDQsbod6Uaw15dRhNrDzn",
-);
-const TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-);
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
-);
-const SYSVAR_RENT_PUBKEY = new PublicKey(
-  "SysvarRent111111111111111111111111111111111",
-);
+import {
+  AUCTION_HOUSE,
+  AH_PROGRAM,
+  deriveBuyerEscrow,
+  reclaimWithWallet,
+} from "./recovery";
 
 // Use Helius RPC for reliable connection
 const connection = new Connection(
@@ -51,18 +27,33 @@ interface TrackedWallet {
 
 import affectedWalletsData from "./affected_wallets.json";
 
-const INITIAL_TRACKED_WALLETS: TrackedWallet[] = affectedWalletsData.wallets.map(w => ({
-  address: w.address,
-  balance: w.balance
-}));
+const INITIAL_TRACKED_WALLETS: TrackedWallet[] = (
+  affectedWalletsData.wallets || []
+).map((w: TrackedWallet) => ({ address: w.address, balance: w.balance }));
+
+// Optional metadata written by refresh_balances.cjs (older data files omit these).
+const DATA_META = affectedWalletsData as unknown as {
+  generatedAt?: string;
+  totalLockedSol?: number;
+  walletsStillLocked?: number;
+  walletsRecovered?: number;
+};
 
 function App() {
   const [wallet, setWallet] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: string; text: string; sig?: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "recovery" | "about">("dashboard");
-  const [trackedWallets, setTrackedWallets] = useState<TrackedWallet[]>(INITIAL_TRACKED_WALLETS);
+  const [message, setMessage] = useState<{
+    type: string;
+    text: string;
+    sig?: string;
+  } | null>(null);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "recovery" | "about">(
+    "dashboard",
+  );
+  const [trackedWallets, setTrackedWallets] = useState<TrackedWallet[]>(
+    INITIAL_TRACKED_WALLETS,
+  );
   const [lookupInput, setLookupInput] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
@@ -72,14 +63,14 @@ function App() {
     setCopiedAddress(address);
     setTimeout(() => setCopiedAddress(null), 2000);
   };
-  
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const totalPages = Math.ceil(trackedWallets.length / itemsPerPage);
   const currentWallets = trackedWallets.slice(
     (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    currentPage * itemsPerPage,
   );
 
   useEffect(() => {
@@ -119,27 +110,19 @@ function App() {
     }
   };
 
+  const escrowBalanceFor = async (owner: PublicKey): Promise<number> => {
+    const [buyerEscrow] = deriveBuyerEscrow(owner);
+    const info = await connection.getAccountInfo(buyerEscrow);
+    return info && info.lamports > 0 ? info.lamports / 1e9 : 0;
+  };
+
   const lookupDashboardWallet = async () => {
     if (!lookupInput.trim()) return;
     setLookupLoading(true);
-
     try {
       const addressToCheck = new PublicKey(lookupInput.trim());
+      const escrowBalance = await escrowBalanceFor(addressToCheck);
 
-      const [buyerEscrow] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("auction_house"),
-          AUCTION_HOUSE.toBuffer(),
-          addressToCheck.toBuffer(),
-        ],
-        AH_PROGRAM,
-      );
-
-      const escrowInfo = await connection.getAccountInfo(buyerEscrow);
-      const escrowBalance =
-        escrowInfo && escrowInfo.lamports > 0 ? escrowInfo.lamports / 1e9 : 0;
-
-      // Update dashboard
       const existingIndex = trackedWallets.findIndex(
         (w) => w.address === addressToCheck.toString(),
       );
@@ -153,7 +136,6 @@ function App() {
           ...prev,
         ]);
       }
-
       setLookupInput("");
     } catch (err) {
       console.error("Lookup failed:", err);
@@ -167,28 +149,12 @@ function App() {
     setIsLoading(true);
     setMessage(null);
     try {
-      const [buyerEscrow] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("auction_house"),
-          AUCTION_HOUSE.toBuffer(),
-          new PublicKey(wallet).toBuffer(),
-        ],
-        AH_PROGRAM,
-      );
-
-      let escrowBalance = 0;
-      const escrowInfo = await connection.getAccountInfo(buyerEscrow);
-      if (escrowInfo && escrowInfo.lamports > 0) {
-        escrowBalance = escrowInfo.lamports / 1e9;
-      }
-
-      if (escrowBalance > 0) {
-        setBalance(escrowBalance);
-      } else {
-        setBalance(0);
+      const escrowBalance = await escrowBalanceFor(new PublicKey(wallet));
+      setBalance(escrowBalance);
+      if (escrowBalance === 0) {
         setMessage({
           type: "error",
-          text: "No stuck SOL found for your wallet.",
+          text: "No reclaimable SOL found for this wallet.",
         });
       }
     } catch (err: any) {
@@ -202,72 +168,25 @@ function App() {
     }
   };
 
-  const withdrawSol = async () => {
-    if (!wallet || balance === null) return;
+  // Working recovery: CloseEscrowAccount is NOT gated by requiresSignOff, so the
+  // wallet owner alone can close the escrow and reclaim all of its lamports.
+  const reclaimSol = async () => {
+    if (!wallet || balance === null || balance === 0) return;
     setIsLoading(true);
     setMessage(null);
     try {
       const provider = (window as any).phantom?.solana;
       if (!provider) throw new Error("Phantom wallet not found");
 
-      const USER_WALLET = new PublicKey(wallet);
-      const [buyerEscrow, escrowPaymentBump] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("auction_house"),
-          AUCTION_HOUSE.toBuffer(),
-          USER_WALLET.toBuffer(),
-        ],
-        AH_PROGRAM,
+      const sig = await reclaimWithWallet(
+        connection,
+        new PublicKey(wallet),
+        provider,
       );
-
-      const amountBuffer = Buffer.alloc(8);
-      amountBuffer.writeBigUInt64LE(BigInt(Math.floor(balance * 1e9)) as any, 0);
-
-      const discriminator = Buffer.from("b712469c946da122", "hex");
-
-      const ix = new TransactionInstruction({
-        programId: AH_PROGRAM,
-        keys: [
-          { pubkey: USER_WALLET, isSigner: true, isWritable: false },
-          { pubkey: USER_WALLET, isSigner: false, isWritable: true },
-          { pubkey: buyerEscrow, isSigner: false, isWritable: true },
-          { pubkey: TREASURY_MINT, isSigner: false, isWritable: false },
-          { pubkey: AH_AUTHORITY, isSigner: false, isWritable: false }, // Must be true according to smart contract!
-          { pubkey: AUCTION_HOUSE, isSigner: false, isWritable: false },
-          { pubkey: FEE_ACCOUNT, isSigner: false, isWritable: true },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          {
-            pubkey: SystemProgram.programId,
-            isSigner: false,
-            isWritable: false,
-          },
-          {
-            pubkey: ASSOCIATED_TOKEN_PROGRAM_ID,
-            isSigner: false,
-            isWritable: false,
-          },
-          { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-        ],
-        data: Buffer.concat([
-          discriminator,
-          Buffer.from([escrowPaymentBump]),
-          amountBuffer,
-        ]),
-      });
-
-      const tx = new Transaction().add(ix);
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
-      tx.recentBlockhash = blockhash;
-      tx.feePayer = USER_WALLET;
-
-      const signedTx = await provider.signTransaction(tx);
-      const txid = await connection.sendRawTransaction(signedTx.serialize());
-      await connection.confirmTransaction(txid, "confirmed");
-
       setMessage({
         type: "success",
-        text: `Successfully withdrew ${balance} SOL.`,
-        sig: txid,
+        text: `Reclaimed ${balance} SOL to your wallet.`,
+        sig,
       });
       setBalance(0);
     } catch (err: any) {
@@ -278,10 +197,7 @@ function App() {
     }
   };
 
-  const totalStuck = trackedWallets.reduce(
-    (acc, curr) => acc + curr.balance,
-    0,
-  );
+  const totalStuck = trackedWallets.reduce((acc, curr) => acc + curr.balance, 0);
   const affectedCount = trackedWallets.filter((w) => w.balance > 0).length;
 
   return (
@@ -303,9 +219,9 @@ function App() {
               className={`nav-link ${activeTab === "recovery" ? "active" : ""}`}
               onClick={() => setActiveTab("recovery")}
             >
-              CLAIM
+              RECLAIM
             </button>
-            <button 
+            <button
               className={`nav-link ${activeTab === "about" ? "active" : ""}`}
               onClick={() => setActiveTab("about")}
             >
@@ -314,17 +230,25 @@ function App() {
           </div>
         </div>
         <div className="nav-right">
-          <button className="nav-connect-btn" onClick={connectWallet} disabled={isLoading}>
-            {isLoading ? "..." : wallet ? `${wallet.slice(0, 4)}...${wallet.slice(-4)}` : "CONNECT"}
+          <button
+            className="nav-connect-btn"
+            onClick={connectWallet}
+            disabled={isLoading}
+          >
+            {isLoading
+              ? "..."
+              : wallet
+                ? `${wallet.slice(0, 4)}...${wallet.slice(-4)}`
+                : "CONNECT"}
           </button>
         </div>
       </nav>
 
       <div className="main-content">
         <header>
-          <h1>OPENSEA ESCROW TRACKER</h1>
+          <h1>OPENSEA ESCROW RECOVERY</h1>
           <p className="subtitle">
-            Monitoring stuck SOL in deprecated Metaplex Auction Houses
+            Reclaim SOL from the deprecated OpenSea Solana Auction House
           </p>
         </header>
 
@@ -332,22 +256,52 @@ function App() {
           <div className="dashboard-content">
             <div className="metrics-grid">
               <div className="metric-card">
-                <span className="metric-label">Total SOL Locked</span>
+                <span className="metric-label">Total SOL Still Locked</span>
                 <span className="metric-value">
-                  {totalStuck.toFixed(4)} <span className="metric-unit">SOL</span>
+                  {totalStuck.toFixed(4)}{" "}
+                  <span className="metric-unit">SOL</span>
                 </span>
               </div>
               <div className="metric-card">
-                <span className="metric-label">Tracked Accounts</span>
+                <span className="metric-label">Wallets Still Locked</span>
                 <span className="metric-value">{affectedCount}</span>
               </div>
               <div className="metric-card">
-                <span className="metric-label">Contract Status</span>
-                <span className="metric-value alert-value" style={{ fontSize: "1.5rem", marginTop: "auto" }}>
-                  requiresSignOff: true
+                <span className="metric-label">Recovery Status</span>
+                <span
+                  className="metric-value"
+                  style={{
+                    fontSize: "1.5rem",
+                    marginTop: "auto",
+                    color: "var(--success, #22c55e)",
+                  }}
+                >
+                  Available
                 </span>
               </div>
             </div>
+
+            <div
+              className="message message-success"
+              style={{ marginBottom: "1.5rem" }}
+            >
+              Funds are recoverable. The escrow can be closed by its owner via the{" "}
+              <strong>CloseEscrowAccount</strong> instruction, which does not need
+              OpenSea's sign-off. Go to the <strong>RECLAIM</strong> tab.
+            </div>
+
+            {DATA_META.generatedAt && (
+              <p
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: "0.8rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                Snapshot: {new Date(DATA_META.generatedAt).toLocaleString()} ·{" "}
+                {DATA_META.walletsRecovered ?? 0} wallets already emptied.
+              </p>
+            )}
 
             <div className="lookup-section">
               <h2 className="lookup-title">
@@ -377,29 +331,40 @@ function App() {
                 <thead>
                   <tr>
                     <th>Wallet Address</th>
-                    <th style={{ textAlign: "right" }}>Stuck Balance (SOL)</th>
+                    <th style={{ textAlign: "right" }}>Balance (SOL)</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {currentWallets.map((w, idx) => (
                     <tr key={idx}>
-                      <td 
+                      <td
                         onClick={() => handleCopy(w.address)}
                         style={{ cursor: "pointer" }}
                         title="Click to copy address"
                       >
                         <span className="desktop-only">{w.address}</span>
-                        <span className="mobile-only">{w.address.slice(0, 4)}...{w.address.slice(-4)}</span>
+                        <span className="mobile-only">
+                          {w.address.slice(0, 4)}...{w.address.slice(-4)}
+                        </span>
                         {copiedAddress === w.address && (
-                          <span style={{ color: "#38bdf8", marginLeft: "8px", fontSize: "0.75rem", fontWeight: "bold" }}>Copied!</span>
+                          <span
+                            style={{
+                              color: "#38bdf8",
+                              marginLeft: "8px",
+                              fontSize: "0.75rem",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            Copied!
+                          </span>
                         )}
                       </td>
                       <td
                         style={{
                           textAlign: "right",
                           fontWeight: "bold",
-                          color: w.balance > 0 ? "var(--error)" : "inherit",
+                          color: w.balance > 0 ? "var(--text-main)" : "inherit",
                         }}
                       >
                         {w.balance > 0 ? w.balance.toFixed(5) : "0"}
@@ -407,8 +372,8 @@ function App() {
                       <td>
                         {w.balance > 0 ? (
                           <span className="badge badge-locked">
-                            <span className="desktop-only">Locked (Error 6011)</span>
-                            <span className="mobile-only">Locked</span>
+                            <span className="desktop-only">Reclaimable</span>
+                            <span className="mobile-only">Open</span>
                           </span>
                         ) : (
                           <span className="badge badge-empty">Empty</span>
@@ -420,17 +385,21 @@ function App() {
               </table>
               {totalPages > 1 && (
                 <div className="pagination">
-                  <button 
-                    className="btn-page" 
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                  <button
+                    className="btn-page"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                   >
                     PREV
                   </button>
-                  <span>PAGE {currentPage} OF {totalPages}</span>
-                  <button 
-                    className="btn-page" 
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                  <span>
+                    PAGE {currentPage} OF {totalPages}
+                  </span>
+                  <button
+                    className="btn-page"
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
                     disabled={currentPage === totalPages}
                   >
                     NEXT
@@ -448,12 +417,23 @@ function App() {
                   color="var(--text-main)"
                   style={{ margin: "0 auto 1.5rem" }}
                 />
-                <h2 style={{ fontFamily: "'JetBrains Mono', monospace", marginBottom: "1rem" }}>CONNECT WALLET</h2>
-                <p
-                  style={{ color: "var(--text-muted)", marginBottom: "2rem", maxWidth: "400px" }}
+                <h2
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    marginBottom: "1rem",
+                  }}
                 >
-                  Connect your Phantom wallet to attempt a withdrawal from your
-                  personal escrow account.
+                  CONNECT WALLET
+                </h2>
+                <p
+                  style={{
+                    color: "var(--text-muted)",
+                    marginBottom: "2rem",
+                    maxWidth: "400px",
+                  }}
+                >
+                  Connect the wallet that made the OpenSea offers to check and
+                  reclaim its escrow balance.
                 </p>
                 <button
                   className="btn-primary"
@@ -482,92 +462,166 @@ function App() {
                   {isLoading ? "CHECKING..." : "CHECK MY ESCROW BALANCE"}
                 </button>
 
-                {balance !== null && (
+                {balance !== null && balance > 0 && (
                   <div className="stuck-funds-row">
-                    <span className="info-label" style={{ color: "var(--error)" }}>
-                      Stuck Funds Found
-                    </span>
+                    <span className="info-label">Reclaimable Funds</span>
                     <span className="balance-large">
-                      {balance} <span style={{ fontSize: "1rem", alignSelf: "flex-end", marginBottom: "0.5rem" }}>SOL</span>
+                      {balance}{" "}
+                      <span
+                        style={{
+                          fontSize: "1rem",
+                          alignSelf: "flex-end",
+                          marginBottom: "0.5rem",
+                        }}
+                      >
+                        SOL
+                      </span>
                     </span>
-                    <p style={{ fontSize: "0.85rem", color: "var(--error)", opacity: 0.8, marginTop: "0.5rem" }}>
-                      These funds are locked in the OpenSea escrow PDA.
+                    <p
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--text-muted)",
+                        marginTop: "0.5rem",
+                      }}
+                    >
+                      Reclaiming closes your escrow account and returns these
+                      lamports to your wallet. Only your signature is required.
                     </p>
                   </div>
                 )}
 
                 <button
-                  className="btn-danger"
-                  onClick={withdrawSol}
+                  className="btn-primary"
+                  onClick={reclaimSol}
                   disabled={isLoading || balance === null || balance === 0}
-                  title="Withdrawals are blocked by the smart contract"
+                  style={{
+                    width: "100%",
+                    padding: "1.25rem",
+                    marginTop: "1rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "0.5rem",
+                  }}
                 >
                   <ArrowDownToLine size={20} />
-                  WITHDRAW SOL (BLOCKED)
+                  {isLoading ? "RECLAIMING..." : "RECLAIM SOL"}
                 </button>
                 <p className="blocked-note">
-                  Withdrawal simulation will fail with Error 6011.
+                  Uses CloseEscrowAccount. The old Withdraw path is blocked by
+                  Error 6011; this one is not.
                 </p>
               </div>
             )}
           </div>
         ) : (
-          <div className="explanation-card" style={{ margin: "0 auto", marginTop: "2rem" }}>
+          <div
+            className="explanation-card"
+            style={{ margin: "0 auto", marginTop: "2rem" }}
+          >
             <h2 className="explanation-title">
               <AlertCircle size={20} />
-              The OpenSea Solana Escrow Issue
+              The OpenSea Solana Escrow Issue — and the fix
             </h2>
             <div className="explanation-text">
-              <h3 style={{ color: "var(--text-main)", marginBottom: "1rem" }}>What happened to my SOL?</h3>
+              <h3 style={{ color: "var(--text-main)", marginBottom: "1rem" }}>
+                What happened to my SOL?
+              </h3>
               <p>
-                When you made an offer on a Solana NFT using OpenSea, your SOL was temporarily transferred into a secure digital vault (called an "escrow" account). This was a normal process to ensure that if the seller accepted your offer, your funds were ready to complete the trade.
-              </p>
-              
-              <h3 style={{ color: "var(--text-main)", margin: "2rem 0 1rem" }}>The "Two-Key" Vault Problem</h3>
-              <p>
-                To prevent fraud, OpenSea configured their smart contract with a strict security setting called <strong><code>requiresSignOff = true</code></strong>. 
-              </p>
-              <p>
-                Think of this like a bank vault that requires two keys to open: your key (your Phantom wallet), and OpenSea's key (their backend server). <strong>No funds can ever leave the vault without both keys turning at the same time.</strong>
+                When you made an offer on a Solana NFT using OpenSea, your SOL was
+                moved into a per-wallet escrow account (a PDA) owned by OpenSea's
+                Auction House program. If the offer was never accepted, that SOL
+                is still sitting in the escrow.
               </p>
 
-              <h3 style={{ color: "var(--text-main)", margin: "2rem 0 1rem" }}>Why is it stuck now?</h3>
+              <h3 style={{ color: "var(--text-main)", margin: "2rem 0 1rem" }}>
+                Why "Withdraw" fails
+              </h3>
               <p>
-                When OpenSea officially shut down their Solana marketplace, they permanently turned off the backend servers that hold their "second key." Because their systems are offline, they are no longer co-signing withdrawal requests.
-              </p>
-              <p>
-                If you attempt to withdraw your SOL today, the Solana blockchain will automatically reject it with an <strong>Error 6011 (CannotTakeThisActionWithoutAuctionHouseSignOff)</strong>. It is mathematically impossible to withdraw your funds without OpenSea's approval.
+                OpenSea configured the contract with{" "}
+                <strong>
+                  <code>requiresSignOff = true</code>
+                </strong>
+                . The <code>Withdraw</code> instruction is gated by that flag, so
+                a withdraw needs OpenSea's backend to co-sign. Since that backend
+                is offline, a withdraw is rejected with{" "}
+                <strong>Error 6011 (CannotTakeThisActionWithoutAuctionHouseSignOff)</strong>
+                .
               </p>
 
-              <h3 style={{ color: "var(--text-main)", margin: "2rem 0 1rem" }}>How can this be fixed?</h3>
+              <h3 style={{ color: "var(--text-main)", margin: "2rem 0 1rem" }}>
+                The fix: CloseEscrowAccount
+              </h3>
               <p>
-                OpenSea still controls the master administrator wallet for this contract. All they need to do is send a single transaction to toggle the <code>requiresSignOff</code> setting to <code>false</code>. 
+                The same program has a different instruction,{" "}
+                <strong>
+                  <code>CloseEscrowAccount</code>
+                </strong>
+                , which is <strong>not</strong> gated by the sign-off flag. It
+                closes your escrow PDA and returns <strong>all</strong> of its
+                lamports (your deposited SOL plus the account rent) to your wallet,
+                requiring <strong>only your own signature</strong>. No OpenSea
+                sign-off, and OpenSea does not need to change any setting.
               </p>
               <p>
-                Once they flip that switch, the requirement for their "second key" is removed, and all <strong>2,800+ users</strong> will immediately be able to withdraw their <strong>704+ stuck SOL</strong> using the Claim page on this site.
+                This has been verified by simulation and by live, successful
+                on-chain closures on this exact auction house. Use the{" "}
+                <strong>RECLAIM</strong> tab, or the <code>reclaim.cjs</code> CLI
+                in the repository.
               </p>
 
-              <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "3rem 0" }} />
+              <hr
+                style={{
+                  border: "none",
+                  borderTop: "1px solid var(--border-color)",
+                  margin: "3rem 0",
+                }}
+              />
 
-              <h3 style={{ color: "var(--text-muted)", fontSize: "0.9rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "1rem" }}>Technical Details & Explorer Links</h3>
-              <ul style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: "1.8", paddingLeft: "1.5rem" }}>
+              <h3
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: "0.9rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
+                  marginBottom: "1rem",
+                }}
+              >
+                Technical Details & Explorer Links
+              </h3>
+              <ul
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: "0.9rem",
+                  lineHeight: "1.8",
+                  paddingLeft: "1.5rem",
+                }}
+              >
                 <li>
-                  <strong>Metaplex Auction House Program:</strong>{" "}
-                  <a href="https://solscan.io/account/hausS13jsjafwWwGqZTUQRmWyvyxn9EQpqMwV1PBBmk" target="_blank" rel="noopener noreferrer" style={{ color: "#38bdf8", textDecoration: "none" }}>
-                    hausS13jsjafwWwGqZTUQRmWyvyxn9EQpqMwV1PBBmk
-                  </a>
-                </li>
-                <li>
-                  <strong>OpenSea Authority Wallet:</strong>{" "}
-                  <a href="https://solscan.io/account/2pahVjZpYQ38mXW3iU7CqBwtN1X7f2J9B62iJ1M81V13" target="_blank" rel="noopener noreferrer" style={{ color: "#38bdf8", textDecoration: "none" }}>
-                    2pahVjZpYQ38mXW3iU7CqBwtN1X7f2J9B62iJ1M81V13
+                  <strong>Auction House Program:</strong>{" "}
+                  <a
+                    href={`https://solscan.io/account/${AH_PROGRAM.toBase58()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#38bdf8", textDecoration: "none" }}
+                  >
+                    {AH_PROGRAM.toBase58()}
                   </a>
                 </li>
                 <li>
                   <strong>Auction House Instance PDA:</strong>{" "}
-                  <a href="https://solscan.io/account/3o9d13qUvEuuauhFrVom1vuCzgNsJifeaBYDPquaT73Y" target="_blank" rel="noopener noreferrer" style={{ color: "#38bdf8", textDecoration: "none" }}>
-                    3o9d13qUvEuuauhFrVom1vuCzgNsJifeaBYDPquaT73Y
+                  <a
+                    href={`https://solscan.io/account/${AUCTION_HOUSE.toBase58()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#38bdf8", textDecoration: "none" }}
+                  >
+                    {AUCTION_HOUSE.toBase58()}
                   </a>
+                </li>
+                <li>
+                  <strong>Recovery instruction:</strong> CloseEscrowAccount
+                  (discriminator 209,42,208,179,140,78,18,43 + escrow bump)
                 </li>
               </ul>
             </div>

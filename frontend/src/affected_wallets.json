@@ -1,8 +1,9 @@
 {
-  "scanDate": "2026-07-02T13:14:34.029Z",
-  "totalUniqueWallets": 20376,
-  "affectedWallets": 2806,
-  "totalLockedSol": 704.7141364520996,
+  "generatedAt": "2026-11-05T15:47:25.347Z",
+  "auctionHouse": "3o9d13qUvEuuauhFrVom1vuCzgNsJifeaBYDPquaT73Y",
+  "totalLockedSol": 702.033082,
+  "walletsStillLocked": 2801,
+  "walletsRecovered": 5,
   "wallets": [
     {
       "address": "GBY5ZzcSCXJaXgdowT2KVoa5AY432ecBNqNt9pfc7jDk",
@@ -405,10 +406,6 @@
       "balance": 1.20089088
     },
     {
-      "address": "7hirE81Hc3G8vuQfUwJf2VztuVTE9U4So3UvcYWP4cyQ",
-      "balance": 1.20089088
-    },
-    {
       "address": "4ysvbDnhkqjpYNGThckzN8jX98pQnhj6m6uxbbpksBsk",
       "balance": 1.10089088
     },
@@ -657,10 +654,6 @@
       "balance": 0.60089088
     },
     {
-      "address": "GHSCPnPhAryqi5GXiMYu8Xx6m69oRnDUazD14jC6ddjZ",
-      "balance": 0.60089088
-    },
-    {
       "address": "GDB8bWiQvw67sSDh26c5HQnRh4XGguMQMcXwbzJFJuty",
       "balance": 0.60009088
     },
@@ -806,7 +799,7 @@
     },
     {
       "address": "GQgbHwq56MVr5gVALxASYNeE2fsghot96iKE5f7YexRk",
-      "balance": 0.409981718
+      "balance": 0.40998172
     },
     {
       "address": "FDhXkBFzeDurh1YvnjKaKtHYDtqtKmaD2rGzfh2QqHKU",
@@ -822,10 +815,6 @@
     },
     {
       "address": "CWvRovzd3h5NmYCYpzjJQEmxZhriYRr7CX8LrMjSp8oH",
-      "balance": 0.40089088
-    },
-    {
-      "address": "BkexdF5oQNtck2bCzumsveAJFLpzDT7Y67skBHPxjLCM",
       "balance": 0.40089088
     },
     {
@@ -859,10 +848,6 @@
     {
       "address": "6g1sJ3eMVEndgnKVNFnYWmNnqXS4Ye4a4AUrejLBMcpA",
       "balance": 0.39089088
-    },
-    {
-      "address": "Dw5hurcHWCZ6Nh667dwPp5zi1WFd8nHtii6XVKvmCqn9",
-      "balance": 0.38089088
     },
     {
       "address": "D8BcsBuprQQPKNrMGmZQ58cMDHaCif6t9xQyfdWaaPYG",
@@ -1114,7 +1099,7 @@
     },
     {
       "address": "HcpWj369oq8Zhq2dkkmovYeQhjH726cEPXWa7dhW5k6g",
-      "balance": 0.200000001
+      "balance": 0.2
     },
     {
       "address": "CtReFFsMh5aHKmBaroELD2zp3hU1ZQnYQUM1KjDLLTSo",
@@ -1391,10 +1376,6 @@
     {
       "address": "Cy7bLNUphkDsJy6yCvKFTVj7a3Y6FttWqe9Aap4SkmBf",
       "balance": 0.1
-    },
-    {
-      "address": "F7aNehC42aZc4kowxjchgiDf1UcmNY1Ls23sj3H7hPht",
-      "balance": 0.09749088
     },
     {
       "address": "GpPFJthpBN28CTk7KLURQXEfoWKQ8JH5BHMUR45sF61d",
@@ -1746,7 +1727,7 @@
     },
     {
       "address": "F1ZoWBRX7YJQwvs1gyCgbZdKW3aKJa8bxfXwXzExD4rv",
-      "balance": 0.010890882
+      "balance": 0.01089088
     },
     {
       "address": "9xo1FbtaPkfws38V2UqpcAnkpjAVk7VGtELcN8RURMw6",
@@ -1850,7 +1831,7 @@
     },
     {
       "address": "8nyMddGM7tPHgHToFJ2WXTC2uJyyVdHaAcnUN4rLHYXJ",
-      "balance": 0.001207561
+      "balance": 0.00120756
     },
     {
       "address": "Aea5CuPmnoAvUPGMFuViWytwc5ipRG1LHP1m3CYiPGEb",
